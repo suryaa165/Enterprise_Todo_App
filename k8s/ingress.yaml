@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-ingress
+  namespace: todo
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  rules:
+  - host: YOUR_FRONTEND_DOMAIN
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service: {name: todo-backend, port: {number: 8000}}
+      - path: /
+        pathType: Prefix
+        backend:
+          service: {name: todo-frontend, port: {number: 80}}

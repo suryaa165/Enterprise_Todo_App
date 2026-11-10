@@ -1,0 +1,65 @@
+name: Build and deploy to EKS
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  EKS_CLUSTER_NAME: todo-eks
+  ECR_BACKEND: todo-backend
+  ECR_FRONTEND: todo-frontend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (GitHub OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $REGISTRY/$ECR_BACKEND:$IMAGE_TAG ./backend
+          docker push $REGISTRY/$ECR_BACKEND:$IMAGE_TAG
+
+      - name: Build and push frontend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build --build-arg VITE_API_URL= -t $REGISTRY/$ECR_FRONTEND:$IMAGE_TAG ./frontend
+          docker push $REGISTRY/$ECR_FRONTEND:$IMAGE_TAG
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+
+      - name: Deploy manifests
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          sed -i "s|ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/todo-backend:latest|$REGISTRY/$ECR_BACKEND:$IMAGE_TAG|" k8s/backend.yaml
+          sed -i "s|ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/todo-frontend:latest|$REGISTRY/$ECR_FRONTEND:$IMAGE_TAG|" k8s/frontend.yaml
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/backend.yaml
+          kubectl apply -f k8s/frontend.yaml
+          kubectl apply -f k8s/ingress.yaml
+          kubectl rollout status deployment/todo-backend -n todo --timeout=180s
+          kubectl rollout status deployment/todo-frontend -n todo --timeout=180s

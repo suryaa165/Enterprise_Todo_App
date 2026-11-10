@@ -1,0 +1,49 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    environment:
+      DATABASE_URL: "mysql+pymysql://root:Password@mysql:3306/todo_db"
+      SECRET_KEY: "local-dev-secret-key-change-before-production"
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    ports:
+      - "5173:5173"
+
+    depends_on:
+      - backend
+
+  mysql:
+    image: mysql:8.4
+
+    environment:
+      MYSQL_ROOT_PASSWORD: "Password"
+      MYSQL_DATABASE: "todo_db"
+
+    ports:
+      - "3307:3306"
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pPassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql_data:
